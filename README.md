@@ -1,4 +1,4 @@
-This example uses OpenAI - GPT4 to map information from multiple tables to a target template by following templates and transformations.
+This example uses OpenAI - GPT4 to map information from multiple tables to a target table by following templates and transformations.
 
 Install langchain and wandb
 
