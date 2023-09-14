@@ -37,3 +37,8 @@ wandb: Please report any issues to https://github.com/wandb/wandb/issues with th
 9  05-10-2023     Grace White    Gold      ST18181      150
 
 ```
+
+The openai output can be tracked and compared in wandb as well
+
+[wandb_screenshot.jpg](wandb_screenshot.jpg)
+
