@@ -40,5 +40,5 @@ wandb: Please report any issues to https://github.com/wandb/wandb/issues with th
 
 The openai output can be tracked and compared in wandb as well
 
-[wandb_screenshot.jpg](wandb_screenshot.jpg)
+![wandb_screenshot.jpg](wandb_screenshot.jpg)
 
