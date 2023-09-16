@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 import pandas as pd
 from langchain import PromptTemplate, LLMChain
 from langchain.callbacks import wandb_tracing_enabled
-from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
 
 
 def read_tables(source: str, template: str):
@@ -17,11 +17,12 @@ def read_tables(source: str, template: str):
 
 
 def create_llm_chain():
+
     os.environ["WANDB_PROJECT"] = "WebAutomato"
     if "OPENAI_API_KEY" not in os.environ:
         raise ValueError("Set openai key in OPENAI_API_KEY environment variable")
     OpenAI_API_KEY = os.environ["OPENAI_API_KEY"]
-    template = """you will be provided with the information from two input tables and one template table. You need to extract the information from the two input tables and fill the template table. 
+    template = """you are an assistant. you will be provided with the information from two input tables and one template table. You need to extract the information from the two input tables and fill the result table.  
 
     Table 1 - {tableA_row}
 
@@ -29,23 +30,22 @@ def create_llm_chain():
 
     Template - {template_row}
 
-    Construct the template table with following columns - ['Date', 'EmployeeName', 'Plan', 'PolicyNumber', 'Premium'] 
-
     Follow the instructions carefully:
-
+    The result row contains exactly the same number of rows as Table 1 and do not fill any additional data
+    Construct the result table with the same columns and format as template table.
+    Always transform the date fields to mm-dd-yyyy format
     Follow the formats specified in the Template
     Provide your response as a JSON object
     If the values are available on both Table 1 and Table 2, choose the first option
-    Always transform the data fields to mm-dd-yyyy format
-
+    
     JSON object:"""
 
     prompt = PromptTemplate(
         template=template, input_variables=["tableA_row", "tableB_row", "template_row"]
     )
-
-    llm = OpenAI(openai_api_key=OpenAI_API_KEY)
-    llm_chain = LLMChain(prompt=prompt, llm=llm)
+    # Change the model name based on the context length and accuracy requirements
+    llm = ChatOpenAI(openai_api_key=OpenAI_API_KEY, model_name="gpt-3.5-turbo")
+    llm_chain = LLMChain(prompt=prompt, llm=llm, verbose=True)
 
     return llm_chain
 
@@ -55,20 +55,40 @@ def main(args):
     llm_chain = create_llm_chain()
 
     openai_result_list = []
-    for i in range(len(tableA_df)):
-        tableA_row = tableA_df.iloc[i].to_json()
-        tableB_row = tableB_df.iloc[i].to_json()
-        template_row = template_df.iloc[i].to_json()
-        with wandb_tracing_enabled():
-            response = llm_chain.run(
-                {"tableA_row": tableA_row, "tableB_row": tableB_row, "template_row": template_row}
-            )
-        target_row_dict = json.loads(response)
-        openai_result_list.append(target_row_dict)
+    error_records = []
+    # Set the batch size based on the table data
+    # In case the columns text are shorter, increase the batch size
+    # If the column contains large string, reduce the batch size accordingly
+    batch_size = 5
 
-    target_df = pd.DataFrame(openai_result_list)
+    for batch_start in range(0, len(tableA_df), batch_size):
+        batch_end = min(batch_start + batch_size, len(tableA_df))
+        tableA_row = tableA_df.iloc[batch_start:batch_end].to_json()
+        tableB_row = tableB_df.iloc[batch_start:batch_end].to_json()
+        # As the template contains only few rows, take all of them
+        # if there are too many rows, just fetch first n samples - template_df.iloc[:10].to_json()
+        template_row = template_df.iloc[:].to_json()
+        try:
+            with wandb_tracing_enabled():
+                response = llm_chain.run(
+                    {
+                        "tableA_row": tableA_row,
+                        "tableB_row": tableB_row,
+                        "template_row": template_row,
+                    }
+                )
+            target_row_dict = json.loads(response)
+            target_sub_df = pd.DataFrame(target_row_dict)
+            openai_result_list.append(target_sub_df)
+        except Exception as e:
+            # Capture the Table A record that caused the exception
+            error_records.append(tableA_row)
+
+    target_df = pd.concat(openai_result_list, ignore_index=True)
     target_df.to_csv(args.target, index=False)
-    print(target_df)
+    # Create an email to notify error records
+    print("Error Records: ", error_records)
+    print("Final Output: ", target_df)
 
 
 if __name__ == "__main__":
